@@ -1,0 +1,127 @@
+Main script
+
+import discord
+from discord.ext import tasks, commands
+import requests
+import asyncio
+
+TOKEN = "Your bot token here"
+STATS_CHANNEL_ID = 1336764721855987782  # Text channel for messages
+PLAYER_VOICE_CHANNEL_ID = 1373200254748327936  # Voice channel for players
+VISITS_VOICE_CHANNEL_ID = 1373200489524498462  # Voice channel for visits
+UNIVERSE_ID = "7706978941"
+MILESTONE = 500  # Next target
+
+intents = discord.Intents.default()
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+async def get_game_stats():
+    try:
+        url = f"https://games.roblox.com/v1/games?universeIds=7706978941"
+        response = requests.get(url)
+        data = response.json()
+        visits = data["data"][0]["visits"]
+        players = data["data"][0]["playing"]
+        return visits, players
+    except Exception as e:
+        print(f"API Error: {e}")
+        return None, None
+
+@tasks.loop(minutes=10)
+async def update_stats():
+    try:
+        visits, players = await get_game_stats()
+        if visits is None or players is None:
+            print("Failed to get game stats, skipping update")
+            return
+
+        print(f"Updating stats - Players: {players}, Visits: {visits}")
+
+        # Get channels
+        stats_channel = bot.get_channel(1336764721855987782)
+        player_channel = bot.get_channel(1373200254748327936)
+        visits_channel = bot.get_channel(1373200489524498462)
+
+        # Update channels if they exist
+        if player_channel:
+            try:
+                await player_channel.edit(name=f"Playing: {players}")
+                print(f"Updated players channel to: Playing: {players}")
+            except discord.errors.Forbidden:
+                print("Missing permissions to edit player channel")
+            except Exception as e:
+                print(f"Error updating player channel: {e}")
+
+        if visits_channel:
+            try:
+                await visits_channel.edit(name=f"Visits: {visits:,}")
+                print(f"Updated visits channel to: Visits: {visits:,}")
+            except discord.errors.Forbidden:
+                print("Missing permissions to edit visits channel")
+            except Exception as e:
+                print(f"Error updating visits channel: {e}")
+
+        # Send message to stats channel
+        if stats_channel:
+            try:
+                message = (
+                    "-------------------------------------------------------\n"
+                    "-------------------------------------------------------\n"
+                    f"👨‍🎮 Active players: {players}\n"
+                    "-------------------------------------------------------\n"
+                    "-------------------------------------------------------\n"
+                    f"👥 Visits: {visits}\n"
+                    f"🎯 Next milestone: {visits}/{MILESTONE}\n"
+                    "-------------------------------------------------------\n"
+                    "-------------------------------------------------------\n"
+                )
+                await stats_channel.send(message)
+
+                if visits >= MILESTONE:
+                    await stats_channel.send(f"🎉 **Milestone reached!** {MILESTONE:,} visits! 🎉")
+            except discord.errors.Forbidden:
+                print("Missing permissions to send messages")
+            except Exception as e:
+                print(f"Error sending message: {e}")
+
+    except Exception as e:
+        print(f"Unexpected error in update_stats: {e}")
+
+@bot.event
+async def on_ready():
+    print(f'Bot ready: {bot.user.name} ({bot.user.id})')
+    print(f'Guilds: {len(bot.guilds)}')
+
+    # Verify channels exist
+    stats_channel = bot.get_channel(1336764721855987782)
+    player_channel = bot.get_channel(1373200254748327936)
+    visits_channel = bot.get_channel(1373200489524498462)
+
+    print(f"Stats channel: {'Found' if stats_channel else 'Not found'}")
+    print(f"Player channel: {'Found' if player_channel else 'Not found'}")
+    print(f"Visits channel: {'Found' if visits_channel else 'Not found'}")
+
+    @bot.event
+    async def on_ready():
+        print(f"Bot is online: {bot.user}")
+
+        # Set custom status (e.g., "Watching Players & Visits")
+        activity = discord.Activity(
+            type=discord.ActivityType.watching,
+            name="Players & Visits"
+        )
+        await bot.change_presence(
+            status=discord.Status.online,  # Makes bot appear "Online"
+            activity=activity
+        )
+
+        update_stats.start()  # Start your stats-updating loop
+
+    # Start the update loop
+    update_stats.start()
+
+# Remove Flask server (not needed for this bot)
+
+from keep_alive import keep_alive
+keep_alive()
+bot.run(TOKEN)
